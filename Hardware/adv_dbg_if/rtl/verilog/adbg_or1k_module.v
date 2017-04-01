@@ -66,7 +66,10 @@
 `include "adbg_or1k_defines.v"
 
 // Module interface
-module adbg_or1k_module (
+module adbg_or1k_module #(
+			 parameter ADBG_USE_HISPEED = "ENABLED"
+			 )
+			 (
 			 // JTAG signals
 			 tck_i,
 			 module_tdo_o,
@@ -83,9 +86,9 @@ module adbg_or1k_module (
 			 rst_i,
 
 			 // Interfate to the OR1K debug unit
-			 cpu_clk_i, 
-			 cpu_addr_o, 
-			 cpu_data_i, 
+			 cpu_clk_i,
+			 cpu_addr_o,
+			 cpu_data_i,
 			 cpu_data_o,
 			 cpu_bp_i,
 			 cpu_stall_o,
@@ -194,16 +197,18 @@ module adbg_or1k_module (
    /////////////////////////////////////////////////
    // Combinatorial assignments
 
-       assign module_cmd = ~(data_register_i[52]);
+   assign     module_cmd = ~(data_register_i[52]);
    assign     operation_in = data_register_i[51:48];
    assign     address_data_in = data_register_i[47:16];
    assign     count_data_in = data_register_i[15:0];
-`ifdef ADBG_USE_HISPEED
-   assign     data_to_biu = {tdi_i,data_register_i[52:22]};
-`else   
-   assign     data_to_biu = data_register_i[52:21];
-`endif   
    assign     reg_select_data = data_register_i[47:(47-(`DBG_OR1K_REGSELECT_SIZE-1))];
+
+   generate
+      if(ADBG_USE_HISPEED!="NONE")
+        assign     data_to_biu = {tdi_i,data_register_i[52:22]};
+      else
+        assign     data_to_biu = data_register_i[52:21];
+   endgenerate
 
    ////////////////////////////////////////////////
 	      // Operation decoder
@@ -236,13 +241,11 @@ module adbg_or1k_module (
    // register.  However, to make the module expandable, it is included anyway.
    always @ (internal_register_select or internal_reg_status)
      begin
-	case(internal_register_select) 
+	case(internal_register_select)
           `DBG_OR1K_INTREG_STATUS: data_from_internal_reg = {30'h0, internal_reg_status};
           default: data_from_internal_reg = {30'h0, internal_reg_status};
 	endcase
      end
-   
-
 
    ////////////////////////////////////////////////////////////////////
    // Module-internal registers
@@ -364,7 +367,7 @@ module adbg_or1k_module (
 			     .rd_wrn_i        (rd_op),           // If 0, then write op
 			     .rdy_o           (biu_ready),
 			     //  This bus has no error signal
-			     
+
 			     // OR1K SPR bus signals
 			     .cpu_clk_i(cpu_clk_i),
 			     .cpu_addr_o(cpu_addr_o),
@@ -464,9 +467,7 @@ module adbg_or1k_module (
 	    begin
 	       if(update_dr_i) module_next_state <= `STATE_idle; 
 	       else if(bit_count_max && word_count_zero) module_next_state <= `STATE_Rcrc;
-`ifndef ADBG_USE_HISPEED         
-	       else if(bit_count_max) module_next_state <= `STATE_Rstatus;
-`endif	         
+	       else if(bit_count_max && ADBG_USE_HISPEED=="NONE") module_next_state <= `STATE_Rstatus;
 	       else module_next_state <= `STATE_Rburst;
 	    end
 	  `STATE_Rcrc:
@@ -493,12 +494,11 @@ module adbg_or1k_module (
 	       if(update_dr_i)  module_next_state <= `STATE_idle;  // client terminated early    
 	       else if(bit_count_max) 
 	         begin
-`ifdef ADBG_USE_HISPEED
-		        if(word_count_zero) module_next_state <= `STATE_Wcrc;
-		        else module_next_state <= `STATE_Wburst;
-`else	           
-	         module_next_state <= `STATE_Wstatus;
-`endif	           
+                   if(ADBG_USE_HISPEED!="NONE")
+		     if(word_count_zero) module_next_state <= `STATE_Wcrc;
+		     else module_next_state <= `STATE_Wburst;
+	           else
+	             module_next_state <= `STATE_Wstatus;
 	         end
 	       else module_next_state <= `STATE_Wburst;
 	    end
@@ -626,9 +626,8 @@ module adbg_or1k_module (
 	       crc_en <= 1'b1;
 	       crc_in_sel <= 1'b0;  // read data in output shift register LSB (tdo)
 	       top_inhibit_o <= 1'b1;    // in case of early termination
-	       
-`ifdef ADBG_USE_HISPEED
-	       if(bit_count_max)
+
+	       if(bit_count_max && ADBG_USE_HISPEED!="NONE")
 	       begin
 	         out_reg_data_sel <= 1'b0;  // select BIU data
 	         out_reg_ld_en <= 1'b1;
@@ -642,7 +641,6 @@ module adbg_or1k_module (
 	           addr_ct_en <= 1'b1;
 	         end
 	       end
-`endif	       
 	    end
 
 	  `STATE_Rcrc:
@@ -676,12 +674,11 @@ module adbg_or1k_module (
 	       crc_en <= 1'b1;
 	       crc_in_sel <= 1'b1;  // read data from tdi_i
 	       top_inhibit_o <= 1'b1;    // in case of early termination
-	       
-`ifdef ADBG_USE_HISPEED
+
 	       // It would be better to do this in STATE_Wstatus, but we don't use that state 
 	       // if ADBG_USE_HISPEED is defined.  
-	       if(bit_count_max)
-		      begin
+	       if(bit_count_max && ADBG_USE_HISPEED!="NONE")
+		   begin
 		      bit_ct_rst <= 1'b1;  // Zero the bit count
 		      // start transaction. Can't do this here if not hispeed, biu_ready
 		      // is the status bit, and it's 0 if we start a transaction here.
@@ -691,8 +688,7 @@ module adbg_or1k_module (
 		      // that would skip the last word.
 		      word_ct_sel <= 1'b1;  // Decrement the byte count
 		      word_ct_en <= 1'b1;
-		      end
-`endif		       
+		   end
 	    end
 
 	  `STATE_Wstatus:

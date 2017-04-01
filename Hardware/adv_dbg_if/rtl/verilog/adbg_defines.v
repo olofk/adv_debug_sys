@@ -54,22 +54,4 @@
 `define DBG_TOP_MODULE_DATA_LEN  53
 
 
-// If WISHBONE sub-module is supported uncomment the following line
-`define DBG_WISHBONE_SUPPORTED
 
-// If CPU_0 sub-module is supported uncomment the following line
-`define DBG_CPU0_SUPPORTED
-
-// If CPU_1 sub-module is supported uncomment the following line
-//`define DBG_CPU1_SUPPORTED
-
-// To include the JTAG Serial Port (JSP), uncomment the following line
-`define DBG_JSP_SUPPORTED  
-
-// Define this if you intend to use the JSP in a system with multiple
-// devices on the JTAG chain
-`define ADBG_JSP_SUPPORT_MULTI
-
-// If this is defined, status bits will be skipped on burst
-// reads and writes to improve download speeds.
-`define ADBG_USE_HISPEED

@@ -61,7 +61,10 @@
 `include "adbg_wb_defines.v"
 
 // Top module
-module adbg_wb_module (
+module adbg_wb_module #(
+                       parameter ADBG_USE_HISPEED = "ENABLED"
+                       )
+                       (
                        // JTAG signals
                        tck_i,
                        module_tdo_o,
@@ -190,16 +193,18 @@ module adbg_wb_module (
    /////////////////////////////////////////////////
    // Combinatorial assignments
 
-       assign module_cmd = ~(data_register_i[52]);
+   assign     module_cmd = ~(data_register_i[52]);
    assign     operation_in = data_register_i[51:48];
    assign     address_data_in = data_register_i[47:16];
    assign     count_data_in = data_register_i[15:0];
-`ifdef ADBG_USE_HISPEED
-   assign data_to_biu = {tdi_i,data_register_i[52:22]};
-`else
-   assign     data_to_biu = data_register_i[52:21];
-`endif
    assign     reg_select_data = data_register_i[47:(47-(`DBG_WB_REGSELECT_SIZE-1))];
+
+   generate
+      if(ADBG_USE_HISPEED!="NONE")
+         assign     data_to_biu = {tdi_i,data_register_i[52:22]};
+      else
+         assign     data_to_biu = data_register_i[52:21];
+   endgenerate
 
    ////////////////////////////////////////////////
 	      // Operation decoder
@@ -305,11 +310,10 @@ module adbg_wb_module (
 	  end
 	else if(error_reg_en && !internal_reg_error[0])
 	  begin
-`ifdef ADBG_USE_HISPEED
-             if(biu_err || (!biu_ready))  internal_reg_error[0] = 1'b1;	    
-`else
-             if(biu_err)  internal_reg_error[0] = 1'b1;
-`endif
+             if(ADBG_USE_HISPEED!="NONE")
+               if(biu_err || (!biu_ready))  internal_reg_error[0] = 1'b1;
+             else
+               if(biu_err)  internal_reg_error[0] = 1'b1;
              else if(biu_strobe) internal_reg_error[32:1] = address_counter;
 	  end
 	else if(biu_strobe && !internal_reg_error[0]) internal_reg_error[32:1] = address_counter;  // When no error, latch this whether error_reg_en or not
@@ -520,9 +524,7 @@ module adbg_wb_module (
 	    begin
 	       if(update_dr_i) module_next_state <= `STATE_idle; 
 	       else if(bit_count_max && word_count_zero) module_next_state <= `STATE_Rcrc;
-`ifndef ADBG_USE_HISPEED   	         
-	       else if(bit_count_max) module_next_state <= `STATE_Rstatus;
-`endif	         
+	       else if(bit_count_max && ADBG_USE_HISPEED=="NONE") module_next_state <= `STATE_Rstatus;
 	       else module_next_state <= `STATE_Rburst;
 	    end
 	  `STATE_Rcrc:
@@ -549,12 +551,11 @@ module adbg_wb_module (
 	       if(update_dr_i)  module_next_state <= `STATE_idle;  // client terminated early
                else if(bit_count_max)
 		 begin
-`ifdef ADBG_USE_HISPEED
-		    if(word_count_zero) module_next_state <= `STATE_Wcrc;
-		    else module_next_state <= `STATE_Wburst;
-`else
-		    module_next_state <= `STATE_Wstatus;
-`endif
+                    if(ADBG_USE_HISPEED!="NONE")
+		      if(word_count_zero) module_next_state <= `STATE_Wcrc;
+		      else module_next_state <= `STATE_Wburst;
+                    else
+		      module_next_state <= `STATE_Wstatus;
 		 end
 	       else module_next_state <= `STATE_Wburst;
 	    end
@@ -683,9 +684,8 @@ module adbg_wb_module (
 	       crc_en <= 1'b1;
 	       crc_in_sel <= 1'b0;  // read data in output shift register LSB (tdo)
 	       top_inhibit_o <= 1'b1;  // in case of early termination
-	       
-`ifdef ADBG_USE_HISPEED
-	       if(bit_count_max)
+
+	       if(ADBG_USE_HISPEED!="NONE" && bit_count_max)
 	       begin
 	         error_reg_en <= 1'b1;       // Check the wb_error bit
 	         out_reg_data_sel <= 1'b0;  // select BIU data
@@ -700,7 +700,6 @@ module adbg_wb_module (
 	           addr_ct_en <= 1'b1;
 	         end
 	       end
-`endif	   
 	    end
 
 	  `STATE_Rcrc:
@@ -736,10 +735,9 @@ module adbg_wb_module (
 	       crc_in_sel <= 1'b1;  // read data from tdi_i
 	       top_inhibit_o <= 1'b1;    // in case of early termination
 
-`ifdef ADBG_USE_HISPEED
 	       // It would be better to do this in STATE_Wstatus, but we don't use that state 
 	       // if ADBG_USE_HISPEED is defined.  
-	       if(bit_count_max)
+	       if(ADBG_USE_HISPEED!="NONE" && bit_count_max)
 		      begin
 		      error_reg_en <= 1'b1;       // Check the wb_error bit
 		      bit_ct_rst <= 1'b1;  // Zero the bit count
@@ -752,7 +750,6 @@ module adbg_wb_module (
 		      word_ct_sel <= 1'b1;  // Decrement the byte count
 		      word_ct_en <= 1'b1;
 		      end
-`endif		    
 	    end
 
 	  `STATE_Wstatus:

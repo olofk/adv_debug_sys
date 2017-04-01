@@ -41,7 +41,10 @@
 `include "adbg_defines.v"
 
 // Module interface
-module adbg_jsp_module (
+module adbg_jsp_module #(
+			 ADBG_JSP_SUPPORT_MULTI	= "ENABLED"
+    )
+    (
 			 // JTAG signals
 			 tck_i,
 			 module_tdo_o,
@@ -62,7 +65,7 @@ module adbg_jsp_module (
 
 			 // WISHBONE slave interface
 			 wb_adr_i, wb_dat_o, wb_dat_i, wb_cyc_i, wb_stb_i, wb_sel_i,
-			 wb_we_i, wb_ack_o, wb_cab_i, wb_err_o, wb_cti_i, wb_bte_i, int_o 
+			 wb_we_i, wb_ack_o, wb_cab_i, wb_err_o, wb_cti_i, wb_bte_i, int_o
 			 );
 
    // JTAG signals
@@ -79,7 +82,7 @@ module adbg_jsp_module (
    input         module_select_i;
    output        top_inhibit_o;
    input         rst_i;
-   
+
    // WISHBONE slave interface
    input         wb_clk_i;
    input         wb_rst_i;
@@ -95,8 +98,8 @@ module adbg_jsp_module (
    output        wb_err_o;
    input   [2:0] wb_cti_i;
    input   [1:0] wb_bte_i;
-   output 	 int_o;
-  
+   output        int_o;
+
    // Declare inputs / outputs as wires / registers
    wire 	 module_tdo_o;
    wire 	 top_inhibit_o;
@@ -104,16 +107,16 @@ module adbg_jsp_module (
    // NOTE:  For the rest of this file, "input" and the "in" direction refer to bytes being transferred
    // from the PC, through the JTAG, and into the BIU FIFO.  The "output" direction refers to data being
    // transferred from the BIU FIFO, through the JTAG to the PC.
-   
+
    // The read and write bit counts are separated to allow for JTAG chains with multiple devices.
    // The read bit count starts right away (after a single throwaway bit), but the write count
    // waits to receive a '1' start bit.
 
    // Registers to hold state etc.
    reg [3:0] 	 read_bit_count;            // How many bits have been shifted out
-   reg [3:0]   write_bit_count;      // How many bits have been shifted in
+   reg [3:0] 	 write_bit_count;      // How many bits have been shifted in
    reg [3:0] 	 input_word_count;     // space (bytes) remaining in input FIFO (from JTAG)
-   reg [3:0]     output_word_count;    // bytes remaining in output FIFO (to JTAG)
+   reg [3:0] 	  output_word_count;    // bytes remaining in output FIFO (to JTAG)
    reg [3:0] 	 user_word_count;     // bytes user intends to send from PC
    reg [7:0] 	 data_out_shift_reg;  // parallel-load output shift register
 
@@ -122,13 +125,13 @@ module adbg_jsp_module (
    reg 		 rd_bit_ct_en;         // enable bit counter
    reg 		 rd_bit_ct_rst;        // reset (zero) bit count register
    reg 		 wr_bit_ct_en;         // enable bit counter
-   reg 		 wr_bit_ct_rst;        // reset (zero) bit count register   
+   reg 		 wr_bit_ct_rst;        // reset (zero) bit count register
    reg 		 in_word_ct_sel;       // Selects data for byte counter.  0 = data_register_i, 1 = decremented byte count
    reg 		 out_word_ct_sel;       // Selects data for byte counter.  0 = data_register_i, 1 = decremented byte count
    reg 		 in_word_ct_en;     // Enable input byte counter register
-   reg           out_word_ct_en;    // Enable output byte count register
-   reg           user_word_ct_en;   // Enable user byte count registere
-   reg           user_word_ct_sel;  // selects data for user byte counter.  0 = user data, 1 = decremented byte count
+   reg 		 out_word_ct_en;    // Enable output byte count register
+   reg 		 user_word_ct_en;   // Enable user byte count registere
+   reg 		 user_word_ct_sel;  // selects data for user byte counter.  0 = user data, 1 = decremented byte count
    reg 		 out_reg_ld_en;     // Enable parallel load of data_out_shift_reg
    reg 		 out_reg_shift_en;  // Enable shift of data_out_shift_reg
    reg 		 out_reg_data_sel;  // 0 = BIU data, 1 = byte count data (also from BIU)
@@ -139,10 +142,10 @@ module adbg_jsp_module (
    // Status signals
    wire 	 in_word_count_zero;   // true when input byte counter is zero
    wire 	 out_word_count_zero;   // true when output byte counter is zero
-   wire          user_word_count_zero; // true when user byte counter is zero
+   wire 	 user_word_count_zero; // true when user byte counter is zero
    wire 	 rd_bit_count_max;     // true when bit counter is equal to current word size
    wire 	 wr_bit_count_max;     // true when bit counter is equal to current word size
-      
+
    // Intermediate signals
    wire [3:0] 	 data_to_in_word_counter;  // output of the mux in front of the input byte counter reg
    wire [3:0] 	 data_to_out_word_counter;  // output of the mux in front of the output byte counter reg
@@ -206,7 +209,7 @@ module adbg_jsp_module (
      end
 
    assign in_word_count_zero = (input_word_count == 4'h0);
-   
+
    ////////////////////////////////////////
    // Output word counter
 
@@ -314,21 +317,21 @@ module adbg_jsp_module (
 
 
    // Determination of next state; purely combinatorial
-   always @ (wr_module_state or module_select_i or update_dr_i or capture_dr_i 
+   always @ (wr_module_state or module_select_i or update_dr_i or capture_dr_i
 	     or shift_dr_i or wr_bit_count_max or tdi_i)
      begin
 	case(wr_module_state)
 	  `STATE_wr_idle:
 	    begin
-`ifdef ADBG_JSP_SUPPORT_MULTI
-	       if(module_select_i && capture_dr_i) wr_module_next_state <= `STATE_wr_wait;
-`else
-	       if(module_select_i && capture_dr_i) wr_module_next_state <= `STATE_wr_counts;
-`endif
+	       if(module_select_i && capture_dr_i)
+                 if(ADBG_JSP_SUPPORT_MULTI!="NONE")
+                   wr_module_next_state <= `STATE_wr_wait;
+                 else
+                   wr_module_next_state <= `STATE_wr_counts;
 	       else wr_module_next_state <= `STATE_wr_idle;
 	    end
 	   `STATE_wr_wait:
-	   begin 
+	   begin
 	     	 if(update_dr_i) wr_module_next_state <= `STATE_wr_idle;
 	    	  else if(module_select_i && tdi_i) wr_module_next_state <= `STATE_wr_counts;  // got start bit
 	       else wr_module_next_state <= `STATE_wr_wait;
