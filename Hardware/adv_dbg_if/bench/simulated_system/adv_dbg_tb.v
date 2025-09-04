@@ -181,6 +181,7 @@ end
 //end
 //`endif
 
+`ifdef DBG_WISHBONE_SUPPORTED
 // Start the test (and reset the wishbone)
 initial
 begin
@@ -199,6 +200,7 @@ begin
 
   #1 test_enabled<=#1 1'b1;
 end
+`endif
 
 // This is the main test procedure
 always @ (posedge test_enabled)
@@ -408,7 +410,7 @@ begin
   $display("Error bit is %d, error address is %x", err_data[0], err_data>>1);
 
 `endif  // WB module supported
-  
+  $finish;
 end
 
 task initialize_memory;
@@ -429,6 +431,9 @@ endtask
 
 ///////////////////////////////////////////////////////////////////////////////
 // Declaration and interconnection of components
+
+// Vlog test utils for easy vcd captures with --vcd.
+vlog_tb_utils i_vlog_tb_utils();
 
 // Top module
 tap_top  i_tap (
@@ -641,10 +646,10 @@ begin
     
     // Read the IDCODE in the DR
     write_bit(`JTAG_TMS_bit);  // select_dr_scan
-    write_bit(3'h0);           // capture_ir
-    write_bit(3'h0);           // shift_ir
+    write_bit(3'h0);           // capture_dr
+    write_bit(3'h0);           // shift_dr
     jtag_read_write_stream(64'h0, 8'd32, 1, readdata);  // write data, exit_1
-    write_bit(`JTAG_TMS_bit);  // update_ir
+    write_bit(`JTAG_TMS_bit);  // update_dr
     write_bit(3'h0);           // idle
     idcode = readdata[31:0];
     $display("Got TAP IDCODE 0x%x, expected 0x%x", idcode, `IDCODE_VALUE);
@@ -656,8 +661,8 @@ input [1:0] moduleid;
 reg validid;
 begin
     write_bit(`JTAG_TMS_bit);  // select_dr_scan
-    write_bit(3'h0);           // capture_ir
-    write_bit(3'h0);           // shift_ir
+    write_bit(3'h0);           // capture_dr
+    write_bit(3'h0);           // shift_dr
     jtag_write_stream({1'b1,moduleid}, 8'h3, 1);  // write data, exit_1
     write_bit(`JTAG_TMS_bit);  // update_dr
     write_bit(3'h0);           // idle
@@ -667,8 +672,8 @@ begin
     // Read back the status to make sure a valid chain is selected
     /* Pointless, the newly selected module would respond instead...
     write_bit(`JTAG_TMS_bit);  // select_dr_scan
-    write_bit(3'h0);           // capture_ir
-    write_bit(3'h0);           // shift_ir
+    write_bit(3'h0);           // capture_dr
+    write_bit(3'h0);           // shift_dr
     read_write_bit(`JTAG_TMS_bit, validid);  // get data, exit_1
     write_bit(`JTAG_TMS_bit);  // update_dr
     write_bit(3'h0);           // idle
@@ -793,8 +798,8 @@ begin
    
    // Get us back to shift_dr mode to read a burst
    write_bit(`JTAG_TMS_bit);  // select_dr_scan
-   write_bit(3'h0);           // capture_ir
-   write_bit(3'h0);           // shift_ir
+   write_bit(3'h0);           // capture_dr
+   write_bit(3'h0);           // shift_dr
 
 `ifdef ADBG_USE_HISPEED
       // Get 1 status bit, then word_size_bytes*8 bits
@@ -884,8 +889,8 @@ begin
    
    // Get us back to shift_dr mode to write a burst
    write_bit(`JTAG_TMS_bit);  // select_dr_scan
-   write_bit(3'h0);           // capture_ir
-   write_bit(3'h0);           // shift_ir
+   write_bit(3'h0);           // capture_dr
+   write_bit(3'h0);           // shift_dr
    
 
    // Write a start bit (a 1) so it knows when to start counting
