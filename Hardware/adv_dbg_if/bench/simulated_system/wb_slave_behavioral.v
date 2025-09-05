@@ -71,8 +71,9 @@
 //
 //
 
-//`include "timescale.v"
+`include "timescale.v"
 `include "wb_model_defines.v"
+
 module wb_slave_behavioral
 (
 	CLK_I,

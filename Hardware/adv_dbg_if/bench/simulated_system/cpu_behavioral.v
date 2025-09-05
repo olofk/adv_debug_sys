@@ -86,8 +86,7 @@ module cpu_behavioral
                     cpu_stall_i,
                     cpu_stb_i,
                     cpu_we_i,
-                    cpu_ack_o,
-                    cpu_rst_o
+                    cpu_ack_o
                    );
 
 
@@ -102,7 +101,6 @@ input         cpu_stall_i;
 input         cpu_stb_i;
 input         cpu_we_i;
 output        cpu_ack_o;
-output        cpu_rst_o;
 
 reg           cpu_clk_o;
 reg    [31:0] cpu_data_o;

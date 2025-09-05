@@ -61,6 +61,7 @@
 `include "adbg_defines.v"
 `include "adbg_wb_defines.v"
 `include "wb_model_defines.v"
+`include "timescale.v"
 
 // Polynomial for the CRC calculation
 // Yes, it's backwards.  Yes, this is on purpose.
@@ -79,8 +80,12 @@
 
 `define wait_jtag_period #50
 
-
-module adv_debug_tb; 
+module adv_debug_tb #(
+    parameter ADBG_CPU0_SUPPORTED		= "ENABLED",
+    parameter ADBG_CPU1_SUPPORTED		= "NONE",
+    // If this is enabled, status bits will be skipped on burst
+    // reads and writes to improve download speeds.
+    parameter ADBG_USE_HISPEED			= "ENABLED");
 
 // Connections to the JTAG TAP
 reg jtag_tck_o;
@@ -99,7 +104,6 @@ wire dbg_tdo;
 wire dbg_sel;
 
 // Connections between the debug module and the wishbone
-`ifdef DBG_WISHBONE_SUPPORTED
 wire [31:0] wb_adr;
 wire [31:0] wb_dat_m;
 wire [31:0] wb_dat_s;
@@ -111,9 +115,7 @@ wire wb_ack;
 wire wb_err;
 reg wb_clk_i;  // the wishbone clock
 reg wb_rst_i;
-`endif
 
-`ifdef DBG_CPU0_SUPPORTED
 wire cpu0_clk;
 wire [31:0]cpu0_addr;
 wire [31:0] cpu0_data_c;
@@ -124,10 +126,8 @@ wire cpu0_stb;
 wire cpu0_we;
 wire cpu0_ack;
 wire cpu0_rst;
-`endif
 
-`ifdef DBG_CPU1_SUPPORTED
-reg cpu1_clk;
+wire cpu1_clk;
 wire [31:0]cpu1_addr;
 wire [31:0] cpu1_data_c;
 wire [31:0] cpu1_data_d;
@@ -137,7 +137,6 @@ wire cpu1_stb;
 wire cpu1_we;
 wire cpu1_ack;
 wire cpu1_rst;
-`endif //  `ifdef DBG_CPU1_SUPPORTED
    
 reg test_enabled;
 
@@ -164,13 +163,11 @@ begin
 end
 
 // Provide the wishbone clock
-`ifdef DBG_WISHBONE_SUPPORTED
 initial
 begin
   wb_clk_i = 1'b0;
   forever #7 wb_clk_i = ~wb_clk_i;  // Odd frequency ratio to test the synchronization
 end
-`endif
 
 // Provide the CPU0 clock
 //`ifdef DBG_CPU0_SUPPORTED
@@ -181,7 +178,6 @@ end
 //end
 //`endif
 
-`ifdef DBG_WISHBONE_SUPPORTED
 // Start the test (and reset the wishbone)
 initial
 begin
@@ -200,7 +196,6 @@ begin
 
   #1 test_enabled<=#1 1'b1;
 end
-`endif
 
 // This is the main test procedure
 always @ (posedge test_enabled)
@@ -221,69 +216,66 @@ begin
   ///////////////////////////////////////////////////////////////////
   // Test CPU0 unit
   ////////////////////////////////////////////////////////////////////
-`ifdef DBG_CPU0_SUPPORTED
-  // Select the CPU0 unit in the debug module
-  #1000; 
-  $display("Selecting CPU0 module at time %t", $time);
-  select_debug_module(`DBG_TOP_CPU0_DEBUG_MODULE);
+  if (ADBG_CPU0_SUPPORTED != "NONE") begin
+    // Select the CPU0 unit in the debug module
+    #1000;
+    $display("Selecting CPU0 module at time %t", $time);
+    select_debug_module(`DBG_TOP_CPU0_DEBUG_MODULE);
 
-   // Test reset, stall bits
-   #1000;
-   $display("Testing CPU0 intreg select at time %t", $time);
-   select_module_internal_register(32'h1, 1);  // Really just a read, with discarded data
-   #1000;
-   select_module_internal_register(32'h0, 1);  // Really just a read, with discarded data
-   #1000;
-    
-   // Read the stall and reset bits
-   $display("Testing reset and stall bits at time %t", $time);
-   read_module_internal_register(8'd2, err_data);  // We assume the register is already selected
-   $display("Reset and stall bits are %x", err_data);
-   #1000;
-    
-   //  Set rst/stall bits
-   $display("Setting reset and stall bits at time %t", $time);    
+    // Test reset, stall bits
+    #1000;
+    $display("Testing CPU0 intreg select at time %t", $time);
+    select_module_internal_register(32'h1, 1);  // Really just a read, with discarded data
+    #1000;
+    select_module_internal_register(32'h0, 1);  // Really just a read, with discarded data
+    #1000;
+
+    // Read the stall and reset bits
+    $display("Testing reset and stall bits at time %t", $time);
+    read_module_internal_register(8'd2, err_data);  // We assume the register is already selected
+    $display("Reset and stall bits are %x", err_data);
+    #1000;
+
+    //  Set rst/stall bits
+    $display("Setting reset and stall bits at time %t", $time);
     write_module_internal_register(32'h0, 8'h1, 32'h3, 8'h2);  // idx, idxlen, data, datalen
-   #1000;
-   
-   // Read the bits again
-   $display("Testing reset and stall bits again at time %t", $time);
-   read_module_internal_register(8'd2, err_data);  // We assume the register is already selected
-   $display("Reset and stall bits are %x", err_data);
-   #1000;
-   
-   // Clear the bits
-      $display("Clearing reset and stall bits at time %t", $time);    
+    #1000;
+
+    // Read the bits again
+    $display("Testing reset and stall bits again at time %t", $time);
+    read_module_internal_register(8'd2, err_data);  // We assume the register is already selected
+    $display("Reset and stall bits are %x", err_data);
+    #1000;
+
+    // Clear the bits
+    $display("Clearing reset and stall bits at time %t", $time);
     write_module_internal_register(32'h0, 8'h1, 32'h0, 8'h2);  // idx, idxlen, data, datalen
-   #1000;
-   
-      // Read the bits again
-   $display("Testing reset and stall bits again at time %t", $time);
-   read_module_internal_register(8'd2, err_data);  // We assume the register is already selected
-   $display("Reset and stall bits are %x", err_data);
-   #1000;
-   
-   // Behavioral CPU model must be stalled in order to do SPR access
-   //$display("Setting reset and stall bits at time %t", $time);    
-   write_module_internal_register(32'h0, 8'h1, 32'h1, 8'h2);  // idx, idxlen, data, datalen
-   #1000;
-   
-   // Test SPR bus access
-  $display("Testing CPU0 32-bit burst write at time %t", $time);
-  do_module_burst_write(3'h4, 16'd16, 32'h10);  // 3-bit word size (bytes), 16-bit word count, 32-bit start address
-  #1000;
-  $display("Testing CPU0 32-bit burst read at time %t", $time);
-  do_module_burst_read(3'h4, 16'd16, 32'h0);
-  #1000;
+    #1000;
 
-`endif
+    // Read the bits again
+    $display("Testing reset and stall bits again at time %t", $time);
+    read_module_internal_register(8'd2, err_data);  // We assume the register is already selected
+    $display("Reset and stall bits are %x", err_data);
+    #1000;
 
-  
+    // Behavioral CPU model must be stalled in order to do SPR access
+    //$display("Setting reset and stall bits at time %t", $time);
+    write_module_internal_register(32'h0, 8'h1, 32'h1, 8'h2);  // idx, idxlen, data, datalen
+    #1000;
+
+    // Test SPR bus access
+    $display("Testing CPU0 32-bit burst write at time %t", $time);
+    do_module_burst_write(3'h4, 16'd16, 32'h10);  // 3-bit word size (bytes), 16-bit word count, 32-bit start address
+    #1000;
+    $display("Testing CPU0 32-bit burst read at time %t", $time);
+    do_module_burst_read(3'h4, 16'd16, 32'h0);
+    #1000;
+  end
+
   ///////////////////////////////////////////////////////////////////
   // Test the Wishbone unit
   ////////////////////////////////////////////////////////////////////
-  
-`ifdef DBG_WISHBONE_SUPPORTED
+
   // Select the WB unit in the debug module
   #1000; 
   $display("Selecting Wishbone module at time %t", $time);
@@ -408,8 +400,7 @@ begin
   do_module_burst_write(3'h4, 16'd4, 32'hdeaddead);  // 3-bit word size (bytes), 16-bit word count, 32-bit start address
   read_module_internal_register(8'd33, err_data);  // get the error register
   $display("Error bit is %d, error address is %x", err_data[0], err_data>>1);
-
-`endif  // WB module supported
+  $display("Done.");
   $finish;
 end
 
@@ -470,7 +461,13 @@ tap_top  i_tap (
 
 
 // Top module
-adbg_top i_dbg_module(
+adbg_top
+  #(.DBG_WISHBONE_SUPPORTED ("ENABLED"),
+    .DBG_CPU0_SUPPORTED     (ADBG_CPU0_SUPPORTED),
+    .DBG_CPU1_SUPPORTED     (ADBG_CPU1_SUPPORTED),
+    .DBG_JSP_SUPPORTED      ("NONE"),
+    .ADBG_USE_HISPEED       (ADBG_USE_HISPEED))
+   i_dbg_module(
                 // JTAG signals
                 .tck_i(jtag_tck_o),
                 .tdi_i(dbg_tdo),
@@ -484,12 +481,9 @@ adbg_top i_dbg_module(
                 .capture_dr_i(capture_dr),
 
                 // Instructions
-                .debug_select_i(dbg_sel)
+                .debug_select_i(dbg_sel),
 
-
-                `ifdef DBG_WISHBONE_SUPPORTED
                 // WISHBONE common signals
-                ,
                 .wb_clk_i(wb_clk_i),
                                                                                 
                 // WISHBONE master interface
@@ -504,12 +498,9 @@ adbg_top i_dbg_module(
                 .wb_cab_o(),
                 .wb_err_i(wb_err),
                 .wb_cti_o(),
-                .wb_bte_o()
-                `endif
+                .wb_bte_o(),
 
-                `ifdef DBG_CPU0_SUPPORTED
                 // CPU signals
-                ,
                 .cpu0_clk_i(cpu0_clk),
                 .cpu0_addr_o(cpu0_addr), 
                 .cpu0_data_i(cpu0_data_c),
@@ -519,12 +510,9 @@ adbg_top i_dbg_module(
                 .cpu0_stb_o(cpu0_stb),
                 .cpu0_we_o(cpu0_we),
                 .cpu0_ack_i(cpu0_ack),
-                .cpu0_rst_o(cpu0_rst)
-                `endif
+                .cpu0_rst_o(cpu0_rst),
 
-                `ifdef DBG_CPU1_SUPPORTED
                 // CPU signals
-                ,
                 .cpu1_clk_i(cpu1_clk), 
                 .cpu1_addr_o(cpu1_addr), 
                 .cpu1_data_i(cpu1_data_c),
@@ -535,12 +523,8 @@ adbg_top i_dbg_module(
                 .cpu1_we_o(cpu1_we),
                 .cpu1_ack_i(cpu1_ack),
                 .cpu1_rst_o(cpu1_rst)
-                `endif
-
               );
 
-
-`ifdef DBG_WISHBONE_SUPPORTED
 // The 'wishbone' may be just a p2p connection to a simple RAM
 /*
 onchip_ram_top i_ocram (
@@ -574,10 +558,7 @@ wb_slave_behavioral i_wb
 	.WE_I(wb_we),
 	.CAB_I(1'b0)
 );
-`endif
 
-
-`ifdef DBG_CPU0_SUPPORTED
 // Instantiate a behavioral model of the CPU SPR bus
 cpu_behavioral cpu0_i  (
    .cpu_rst_i(cpu0_rst),
@@ -589,14 +570,9 @@ cpu_behavioral cpu0_i  (
    .cpu_stall_i(cpu0_stall),
    .cpu_stb_i(cpu0_stb),
    .cpu_we_i(cpu0_we),
-   .cpu_ack_o(cpu0_ack),
-   .cpu_rst_o(cpu0_rst)
+   .cpu_ack_o(cpu0_ack)
 );
 
-`endif
-
-
-`ifdef DBG_CPU1_SUPPORTED
 // Instantiate a behavioral model of the CPU SPR bus
 cpu_behavioral cpu1_i  (
 		    .cpu_rst_i(cpu1_rst),
@@ -608,11 +584,9 @@ cpu_behavioral cpu1_i  (
                     .cpu_stall_i(cpu1_stall),
                     .cpu_stb_i(cpu1_stb),
                     .cpu_we_i(cpu1_we),
-                    .cpu_ack_o(cpu1_ack),
-                    .cpu_rst_o(cpu1_rst)
+                    .cpu_ack_o(cpu1_ack)
 );
-`endif
-   
+
 ///////////////////////////////////////////////////////////////////////////
 // Higher-level chain manipulation functions
 
@@ -801,7 +775,7 @@ begin
    write_bit(3'h0);           // capture_dr
    write_bit(3'h0);           // shift_dr
 
-`ifdef ADBG_USE_HISPEED
+   if (ADBG_USE_HISPEED != "NONE") begin
       // Get 1 status bit, then word_size_bytes*8 bits
       status = 1'b0;
       j = 0;
@@ -813,25 +787,25 @@ begin
       if(j > 1) begin
          $display("Took %0d tries before good status bit during burst read", j);
       end
-`endif
-   
+   end
+
    // Now, repeat...
    for(i = 0; i < word_count; i=i+1) begin
-     
-`ifndef ADBG_USE_HISPEED     
-      // Get 1 status bit, then word_size_bytes*8 bits
-      status = 1'b0;
-      j = 0;
-      while(!status) begin
-         read_write_bit(3'h0, status);
-         j = j + 1;
+
+      if (ADBG_USE_HISPEED == "NONE") begin
+         // Get 1 status bit, then word_size_bytes*8 bits
+         status = 1'b0;
+         j = 0;
+         while(!status) begin
+            read_write_bit(3'h0, status);
+            j = j + 1;
+         end
+
+         if(j > 1) begin
+            $display("Took %0d tries before good status bit during burst read", j);
+         end
       end
-      
-      if(j > 1) begin
-         $display("Took %0d tries before good status bit during burst read", j);
-      end
-`endif
-  
+
      jtag_read_write_stream(64'h0, {2'h0,(word_size_bytes<<3)},0,instream);
      //$display("Read 0x%0x", instream[31:0]);
      compute_crc(crc_calc_i, instream[31:0], word_size_bits, crc_calc_o);
@@ -909,17 +883,17 @@ begin
       crc_calc_i = crc_calc_o;
       
       
-`ifndef ADBG_USE_HISPEED
-      // Check if WB bus is ready
-      // *** THIS WILL NOT WORK IF THERE IS MORE THAN 1 DEVICE IN THE JTAG CHAIN!!!
-      status = 1'b0;
-      read_write_bit(3'h0, status);
-      
-      if(!status) begin
-         $display("Bad status bit during burst write, index %d", i);
+      if (ADBG_USE_HISPEED == "NONE") begin
+         // Check if WB bus is ready
+         // *** THIS WILL NOT WORK IF THERE IS MORE THAN 1 DEVICE IN THE JTAG CHAIN!!!
+         status = 1'b0;
+         read_write_bit(3'h0, status);
+
+         if(!status) begin
+            $display("Bad status bit during burst write, index %d", i);
+         end
       end
-`endif      
-  
+
      //$display("Wrote 0x%0x", dataword);
    end
     
